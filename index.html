@@ -2788,7 +2788,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v16';var VERSION_FULL='v16 · 3 Sep 2026';
+var VERSION='v17';var VERSION_FULL='v17 · 4 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2953,7 +2953,7 @@ var ENDPOINT='https://script.google.com/macros/s/AKfycbyC7OcICdPsXBmcJKkzQUNsXi5
 /* Post one comment to Amar's collector. Resolves true if it reached the server. */
 function push(rec){
   if(!ENDPOINT)return Promise.resolve(false);
-  var body=JSON.stringify({items:[rec]});
+  var body=JSON.stringify({key:KEY,items:[rec]});
   return fetch(ENDPOINT,{method:'POST',body:body,headers:{'Content-Type':'text/plain;charset=utf-8'}})
     .then(function(r){return r.text()})
     .then(function(t){
@@ -2971,6 +2971,18 @@ function push(rec){
     });
 }
 var REMOTE=[];
+var OWNER_KEY='amar-f60f6bd0';
+/* Each reviewer opens their own link: ...?r=<key>&n=<name>.
+   The key is remembered so later visits work without the query string. */
+var KEY=(function(){
+  var q=new URLSearchParams(location.search),k=q.get('r');
+  if(k){try{localStorage.setItem('la-review-key',k)}catch(e){}
+        var n=q.get('n');
+        if(n){try{localStorage.setItem('la-review-name',n)}catch(e){}}
+        return k;}
+  try{return localStorage.getItem('la-review-key')||''}catch(e){return ''}
+})();
+var IS_OWNER=(KEY===OWNER_KEY);
 /* Turn a Drive share link into something an <img> can actually display. */
 function driveThumb(url){
   var m=/\/d\/([^/]+)/.exec(String(url||''));
@@ -2981,7 +2993,8 @@ function fetchAll(){
   if(!ENDPOINT)return Promise.resolve(false);
   /* credentials:'omit' matters — with Google cookies attached the endpoint can
      answer with an HTML interstitial instead of JSON. */
-  return fetch(ENDPOINT+'?t='+Date.now(),{credentials:'omit'})
+  if(!KEY)return Promise.resolve(false);
+  return fetch(ENDPOINT+'?key='+encodeURIComponent(KEY)+'&t='+Date.now(),{credentials:'omit'})
     .then(function(r){return r.text()})
     .then(function(t){
       var j=null;try{j=JSON.parse(t)}catch(e){return false}
@@ -3273,6 +3286,7 @@ function boot(){
     '<button id="ibDone" style="margin-left:auto">Show done</button></div><div class="ib-body" id="ibBody"></div>';
   document.body.appendChild(ib);
   var moreBtn=ib.querySelector('#ibMore'),adv=ib.querySelector('#ibAdv');
+  if(!IS_OWNER)moreBtn.style.display='none';
   moreBtn.addEventListener('click',function(){adv.hidden=!adv.hidden});
   ib.querySelector('#ibSync').addEventListener('click',function(){
     var b=ib.querySelector('#ibSync'),old=b.innerHTML;b.innerHTML='&#8635; Refreshing\u2026';
@@ -3331,6 +3345,15 @@ function boot(){
     '<span class="x">&times;</span>';
   var host=document.querySelector('.main')||document.body;var hero=host.querySelector('.hero');
   if(hero&&hero.nextSibling)host.insertBefore(ban,hero.nextSibling);else host.insertBefore(ban,host.firstChild);
+  if(IS_OWNER){
+    var o=document.createElement('div');o.className='who-line';
+    o.innerHTML='<b>Owner view</b> &mdash; you can see every reviewer\u2019s comments. Reviewers only ever see their own.';
+    ban.querySelector('.who-line').appendChild(o);
+  }else if(!KEY){
+    var w=document.createElement('div');w.className='who-line';
+    w.innerHTML='<b>&#9888; Open your personal review link</b> so your comments reach Amar. Ask him to resend it if you do not have it.';
+    ban.querySelector('.who-line').appendChild(w);
+  }
   ban.querySelector('#fbSetName').addEventListener('click',function(){askName()});
   ban.querySelector('.x').addEventListener('click',function(){ban.remove();try{localStorage.setItem('la-review-banner','off')}catch(e){}});
   try{if(localStorage.getItem('la-review-banner')==='off')ban.remove()}catch(e){}
@@ -3352,7 +3375,10 @@ function afterCaps(){
   var imp=document.querySelector('label[for="ibImp"]');if(imp&&!CANSAVE)imp.style.display='none';
 }
 function offline(){
-  var m=document.getElementById('ibMode');if(m)m.textContent='comments are sent to Amar automatically as you write them';
+  var m=document.getElementById('ibMode');
+  if(m)m.textContent=IS_OWNER
+    ? 'every reviewer\u2019s comments, collected automatically'
+    : 'your comments, sent to Amar automatically as you write them';
   document.querySelectorAll('.fb-note').forEach(function(n){
     n.innerHTML='Paste an image straight into the box with Ctrl+V. Each comment goes straight to Amar when you press Send.'});
 }
