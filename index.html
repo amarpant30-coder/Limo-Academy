@@ -75,6 +75,15 @@ body.noscroll{overflow:hidden}
 .fb-send p{margin:0 0 14px;font-size:.95rem;color:var(--ink-2)}
 .fb-send .sd-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.9rem;color:var(--ink-2)}
 .fb-send textarea{width:100%;height:150px;font-family:var(--mono);font-size:.72rem;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg);color:var(--ink);margin:8px 0}
+
+.fb-att{margin-top:.5rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.fb-att-t{background:var(--paper-2,#f1f2f5);border:1px solid var(--line,#dcdfe6);border-radius:8px;
+  padding:5px 10px;font:inherit;font-size:.85rem;cursor:pointer;color:var(--ink,#1c2130);display:inline-flex;align-items:center;gap:.4rem}
+.fb-att-t:hover{background:var(--paper-3,#e8eaef)}
+.fb-att-t .cv{font-size:.7rem;opacity:.7}
+.fb-att-x{font-size:.8rem;color:var(--ink-3,#6b7280);text-decoration:underline}
+.fb-att-b{flex-basis:100%;margin-top:.4rem}
+.fb-att-b img{max-width:min(100%,620px);border-radius:8px;border:1px solid var(--line,#dcdfe6);cursor:zoom-in;display:block}
 .fb-send .sd-sub{font-size:.85rem;color:var(--ink-3);margin:-.4rem 0 .6rem}
 .fb-send .sd-warn{background:var(--amber-soft);color:var(--ink);border-radius:8px;padding:8px 12px;font-size:.88rem}
 #sdMsg{color:var(--green);font-weight:700}
@@ -2779,7 +2788,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v14';var VERSION_FULL='v14 · 3 Sep 2026';
+var VERSION='v15';var VERSION_FULL='v15 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2905,8 +2914,23 @@ function lsGet(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null}
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){STORAGE_OK=false;return false}}
 function mine(){return MEM_MINE}
 function imported(){return MEM_IMP}
-function localAll(){var a=MEM_MINE.concat(MEM_IMP),seen={},out=[];
-  a.forEach(function(r){if(!seen[r.id]){seen[r.id]=1;if(r._shot)SHOTS[r.id]=r._shot;out.push(r)}});return out}
+function localAll(){
+  var a=MEM_MINE.concat(MEM_IMP),seen={},out=[];
+  a.forEach(function(r){if(!seen[r.id]){seen[r.id]=1;if(r._shot)SHOTS[r.id]=r._shot;out.push(r)}});
+  /* Fold in what the collector holds: anything new is added, and rows we already
+     have locally pick up the server's screenshot link and done state. */
+  REMOTE.forEach(function(r){
+    if(seen[r.id]){
+      out.forEach(function(x){if(x.id===r.id){
+        if(r.shotUrl&&!x.shotUrl)x.shotUrl=r.shotUrl;
+        x.done=r.done;x.sent=true;
+      }});
+      return;
+    }
+    seen[r.id]=1;out.push(r);
+  });
+  return out;
+}
 function localSave(a){MEM_MINE=a;lsSet('la-review-local',a);storageWarn()}
 function importSave(a){MEM_IMP=a;lsSet('la-review-imported',a);storageWarn()}
 function loadStored(){
@@ -2945,6 +2969,28 @@ function push(rec){
       return fetch(ENDPOINT,{method:'POST',mode:'no-cors',body:body,headers:{'Content-Type':'text/plain;charset=utf-8'}})
         .then(function(){return true}).catch(function(){return false});
     });
+}
+var REMOTE=[];
+/* Turn a Drive share link into something an <img> can actually display. */
+function driveThumb(url){
+  var m=/\/d\/([^/]+)/.exec(String(url||''));
+  return m?'https://drive.google.com/thumbnail?id='+m[1]+'&sz=w1400':'';
+}
+/* Everything anyone has submitted, straight from the collector. */
+function fetchAll(){
+  if(!ENDPOINT)return Promise.resolve(false);
+  return fetch(ENDPOINT+'?t='+Date.now())
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(!j||!j.ok||!j.items)return false;
+      REMOTE=j.items.filter(function(x){return x&&(x.text||x.shotUrl)}).map(function(x){
+        return {id:x.id||('r'+x.ts),topic:x.topic||'',title:x.title||'',section:x.section||'',
+                type:x.type||'Suggestion',text:x.text||'',name:x.name||'Anonymous',
+                ts:x.ts||0,done:!!x.done,shotUrl:x.shotUrl||'',sent:true,remote:true};
+      });
+      ALL=localAll();render();
+      return true;
+    }).catch(function(){return false});
 }
 /* Retry anything that never made it (offline earlier, blocked network, older comments). */
 function flush(){
@@ -3002,7 +3048,16 @@ function item(rec,showTopic){
     (showTopic?'<span>· '+esc(rec.title)+'</span>':'')+
     '<span class="acts"><a class="fb-done">'+(rec.done?'reopen':'mark done')+'</a><a class="fb-del">delete</a></span></div>'+
     '<p>'+esc(rec.text)+'</p>';
-  if(rec.shot)s+='<img data-shot="'+esc(rec.shot)+'" alt="attached screenshot" src="'+(SHOTS[rec.shot]||'')+'">';
+  var localSrc=rec.shot?(SHOTS[rec.shot]||''):'';
+  var remoteSrc=rec.shotUrl?driveThumb(rec.shotUrl):'';
+  if(localSrc||remoteSrc){
+    var fname='screenshot-'+String(rec.id).slice(-6)+'.jpg';
+    s+='<div class="fb-att">'+
+       '<button type="button" class="fb-att-t"><span class="cv">&#9656;</span> &#128206; '+esc(fname)+'</button>'+
+       (rec.shotUrl?'<a class="fb-att-x" href="'+esc(rec.shotUrl)+'" target="_blank" rel="noopener">open original</a>':'')+
+       '<div class="fb-att-b" hidden><img alt="attached screenshot" data-src="'+esc(localSrc||remoteSrc)+'"></div>'+
+       '</div>';
+  }
   return s+'</div>';
 }
 function removeOne(id){
@@ -3019,11 +3074,20 @@ function wire(root,list){
   root.querySelectorAll('.fb-del').forEach(function(a){a.addEventListener('click',function(){
     var id=a.closest('.fb-item').dataset.id;
     confirmBox('This comment will be removed from this browser. It cannot be undone.',function(){removeOne(id);toast('Comment deleted')})})});
-  root.querySelectorAll('img[data-shot]').forEach(function(img){
-    var id=img.dataset.shot;
-    if(!img.getAttribute('src')&&SHOTS[id])img.src=SHOTS[id];
-    img.addEventListener('click',function(){var z=document.createElement('div');z.className='fb-zoom';
-      z.innerHTML='<img src="'+(img.getAttribute('src')||'')+'">';z.addEventListener('click',function(){z.remove()});document.body.appendChild(z)});
+  root.querySelectorAll('.fb-att').forEach(function(box){
+    var head=box.querySelector('.fb-att-t'),body=box.querySelector('.fb-att-b'),
+        img=body.querySelector('img'),cv=head.querySelector('.cv');
+    head.addEventListener('click',function(){
+      var show=body.hidden;
+      if(show&&!img.getAttribute('src'))img.src=img.dataset.src||'';   /* load only when opened */
+      body.hidden=!show;
+      cv.innerHTML=show?'&#9662;':'&#9656;';
+    });
+    img.addEventListener('click',function(){
+      var z=document.createElement('div');z.className='fb-zoom';
+      z.innerHTML='<img src="'+(img.getAttribute('src')||'')+'">';
+      z.addEventListener('click',function(){z.remove()});document.body.appendChild(z);
+    });
   });
 }
 function render(){
@@ -3192,7 +3256,8 @@ function boot(){
   ob.innerHTML='&#128203; Review inbox <span class="n">0</span>';document.body.appendChild(ob);
   var ib=document.createElement('div');ib.id='fbInbox';
   ib.innerHTML='<div class="ib-top"><h3>&#128203; Review inbox</h3><span id="ibMode" style="font-size:.85rem;opacity:.75"></span><span class="ib-ver">build '+VERSION_FULL+'</span>'+
-    '<span class="sp"><button class="fb-btn" id="ibSend" title="Check that every comment reached Amar, and get a backup copy if any did not">&#9989; Check delivery</button>'+
+    '<span class="sp"><button class="fb-btn ghost" id="ibSync" title="Fetch the latest comments from everyone">&#8635; Refresh</button>'+
+    '<button class="fb-btn" id="ibSend" title="Check that every comment reached Amar, and get a backup copy if any did not">&#9989; Check delivery</button>'+
     '<button class="fb-btn ghost" id="ibCsv" title="Download your own comments as a spreadsheet — a personal backup copy">&#11015; Download my copy</button>'+
     '<button class="fb-btn ghost" id="ibWipe">&#128465; Clear all</button><button class="fb-btn" id="ibClose">Close</button>'+
     '<button class="fb-btn ghost" id="ibMore" title="Owner tools">&#8942;</button>'+
@@ -3206,8 +3271,12 @@ function boot(){
   document.body.appendChild(ib);
   var moreBtn=ib.querySelector('#ibMore'),adv=ib.querySelector('#ibAdv');
   moreBtn.addEventListener('click',function(){adv.hidden=!adv.hidden});
+  ib.querySelector('#ibSync').addEventListener('click',function(){
+    var b=ib.querySelector('#ibSync'),old=b.innerHTML;b.innerHTML='&#8635; Refreshing\u2026';
+    fetchAll().then(function(ok){b.innerHTML=old;toast(ok?'Up to date':'Could not reach the collector',ok?'ok':'bad')});
+  });
   function openInbox(pushState){
-    ib.classList.add('on');document.body.classList.add('noscroll');renderInbox();
+    ib.classList.add('on');document.body.classList.add('noscroll');renderInbox();fetchAll();
     /* Add a history entry so the browser Back button closes the inbox
        instead of leaving the module entirely. */
     if(pushState!==false){try{history.pushState({fbInbox:1},'','#review-inbox')}catch(e){}}
@@ -3264,6 +3333,7 @@ function boot(){
   try{if(localStorage.getItem('la-review-banner')==='off')ban.remove()}catch(e){}
   loadStored();
   ALL=localAll();render();
+  fetchAll();
   setTimeout(function(){flush()},1500);
 
   offline();
