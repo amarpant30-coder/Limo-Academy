@@ -2788,7 +2788,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v17';var VERSION_FULL='v17 · 4 Sep 2026';
+var VERSION='v18';var VERSION_FULL='v18 · 4 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2983,6 +2983,8 @@ var KEY=(function(){
   try{return localStorage.getItem('la-review-key')||''}catch(e){return ''}
 })();
 var IS_OWNER=(KEY===OWNER_KEY);
+/* NAME was read before the link was parsed — pick up a name carried in the link. */
+if(!NAME){try{NAME=localStorage.getItem('la-review-name')||null}catch(e){}}
 /* Turn a Drive share link into something an <img> can actually display. */
 function driveThumb(url){
   var m=/\/d\/([^/]+)/.exec(String(url||''));
