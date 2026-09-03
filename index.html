@@ -2779,7 +2779,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v13';var VERSION_FULL='v13 · 3 Sep 2026';
+var VERSION='v14';var VERSION_FULL='v14 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2932,7 +2932,14 @@ function push(rec){
   var body=JSON.stringify({items:[rec]});
   return fetch(ENDPOINT,{method:'POST',body:body,headers:{'Content-Type':'text/plain;charset=utf-8'}})
     .then(function(r){return r.text()})
-    .then(function(t){try{return !!JSON.parse(t).ok}catch(e){return true}})
+    .then(function(t){
+      try{
+        var j=JSON.parse(t);
+        /* Server hands back a Drive link for any screenshot it filed away. */
+        if(j.shots&&j.shots[rec.id])noteShotUrl(rec.id,j.shots[rec.id]);
+        return !!j.ok;
+      }catch(e){return true}
+    })
     .catch(function(){
       /* CORS or offline: fire-and-forget so the comment still gets through */
       return fetch(ENDPOINT,{method:'POST',mode:'no-cors',body:body,headers:{'Content-Type':'text/plain;charset=utf-8'}})
@@ -2951,6 +2958,16 @@ function flush(){
 }
 /* Mark one comment delivered. Reads storage fresh so a stale array can never
    clobber the flag, and keeps the in-memory copy in step. */
+function noteShotUrl(id,url){
+  if(!url||/^screenshot failed/.test(url))return;
+  var stored=lsGet('la-review-local');
+  if(Array.isArray(stored)){
+    stored.forEach(function(x){if(x.id===id)x.shotUrl=url});
+    MEM_MINE=stored;lsSet('la-review-local',stored);
+  }
+  MEM_MINE.forEach(function(x){if(x.id===id)x.shotUrl=url});
+  ALL=localAll();
+}
 function markSent(id,ok){
   var stored=lsGet('la-review-local');
   if(Array.isArray(stored)){
@@ -3044,15 +3061,19 @@ function exportText(){
   ['Correction','Suggestion','Question','Screenshot'].forEach(function(t){
     var r=rows.filter(function(x){return x.type===t});if(!r.length)return;
     md+='\n\n## '+t+'s ('+r.length+')\n';
-    r.forEach(function(x){md+='\n- **'+x.section+' ‹ '+x.title+'** — '+(x.name||'Anonymous')+', '+when(x.ts)+(x.done?' _(done)_':'')+(x.shot?' _(screenshot attached)_':'')+'\n  \n  '+String(x.text).replace(/\n/g,'\n  ')+'\n'});
+    r.forEach(function(x){md+='\n- **'+x.section+' ‹ '+x.title+'** — '+(x.name||'Anonymous')+', '+when(x.ts)+(x.done?' _(done)_':'')+(x.shot?(x.shotUrl?' — [screenshot]('+x.shotUrl+')':' _(screenshot attached — see the Google Sheet)_'):'')+'\n  \n  '+String(x.text).replace(/\n/g,'\n  ')+'\n'});
   });
   return md;
 }
 function exportCsv(){
   var q=function(s){return '"'+String(s==null?'':s).replace(/"/g,'""')+'"'};
-  return 'Type,Section,Topic,Reviewer,When,Status,Screenshot,Comment\n'+
+  var shotCell=function(x){
+    if(!x.shot)return '';
+    return x.shotUrl||'attached (image is in the Google Sheet, not in this file)';
+  };
+  return 'Type,Section,Topic,Reviewer,When,Status,Screenshot,Comment,ID\n'+
     ALL.slice().sort(function(a,b){return a.ts-b.ts}).map(function(x){
-      return [x.type,x.section,x.title,x.name||'Anonymous',new Date(x.ts).toISOString(),x.done?'done':'open',x.shot?'yes':'',x.text].map(q).join(',')}).join('\n');
+      return [x.type,x.section,x.title,x.name||'Anonymous',new Date(x.ts).toISOString(),x.done?'done':'open',shotCell(x),x.text,x.id].map(q).join(',')}).join('\n');
 }
 function exportJson(noImages){
   var rows=mine().map(function(x){var o={};for(var k in x)o[k]=x[k];
@@ -3172,13 +3193,19 @@ function boot(){
   var ib=document.createElement('div');ib.id='fbInbox';
   ib.innerHTML='<div class="ib-top"><h3>&#128203; Review inbox</h3><span id="ibMode" style="font-size:.85rem;opacity:.75"></span><span class="ib-ver">build '+VERSION_FULL+'</span>'+
     '<span class="sp"><button class="fb-btn" id="ibSend" title="Check that every comment reached Amar, and get a backup copy if any did not">&#9989; Check delivery</button>'+
-    '<label class="fb-btn ghost" for="ibImp">&#128229; Import file</label><input id="ibImp" type="file" accept=".json,application/json" multiple hidden>'+
-    '<button class="fb-btn ghost" id="ibPaste">&#128203; Paste feedback</button>'+
-    '<button class="fb-btn ghost" id="ibMd">Export Markdown</button><button class="fb-btn ghost" id="ibCsv">Export CSV</button>'+
-    '<button class="fb-btn ghost" id="ibWipe">&#128465; Clear all</button><button class="fb-btn" id="ibClose">Close</button></span></div>'+
+    '<button class="fb-btn ghost" id="ibCsv" title="Download your own comments as a spreadsheet — a personal backup copy">&#11015; Download my copy</button>'+
+    '<button class="fb-btn ghost" id="ibWipe">&#128465; Clear all</button><button class="fb-btn" id="ibClose">Close</button>'+
+    '<button class="fb-btn ghost" id="ibMore" title="Owner tools">&#8942;</button>'+
+    '<span id="ibAdv" hidden>'+
+      '<label class="fb-btn ghost" for="ibImp">&#128229; Import file</label><input id="ibImp" type="file" accept=".json,application/json" multiple hidden>'+
+      '<button class="fb-btn ghost" id="ibPaste">&#128203; Paste a backup</button>'+
+      '<button class="fb-btn ghost" id="ibMd">Export Markdown</button>'+
+    '</span></span></div>'+
     '<div class="ib-filters">'+['All'].concat(TYPES).map(function(x,i){return '<button data-f="'+x+'"'+(i===0?' class="on"':'')+'>'+x+'</button>'}).join('')+
     '<button id="ibDone" style="margin-left:auto">Show done</button></div><div class="ib-body" id="ibBody"></div>';
   document.body.appendChild(ib);
+  var moreBtn=ib.querySelector('#ibMore'),adv=ib.querySelector('#ibAdv');
+  moreBtn.addEventListener('click',function(){adv.hidden=!adv.hidden});
   function openInbox(pushState){
     ib.classList.add('on');document.body.classList.add('noscroll');renderInbox();
     /* Add a history entry so the browser Back button closes the inbox
@@ -3248,7 +3275,7 @@ function boot(){
 function afterCaps(){
   var md=document.getElementById('ibMd'),csv=document.getElementById('ibCsv');
   if(md)md.textContent=CANSAVE?'Export Markdown':'View as Markdown';
-  if(csv)csv.textContent=CANSAVE?'Export CSV':'View as CSV';
+  if(csv)csv.innerHTML=(CANSAVE?'&#11015; Download my copy':'&#128203; View my copy');
   var imp=document.querySelector('label[for="ibImp"]');if(imp&&!CANSAVE)imp.style.display='none';
 }
 function offline(){
