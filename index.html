@@ -75,6 +75,7 @@ body.noscroll{overflow:hidden}
 .fb-send p{margin:0 0 14px;font-size:.95rem;color:var(--ink-2)}
 .fb-send .sd-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:.9rem;color:var(--ink-2)}
 .fb-send textarea{width:100%;height:150px;font-family:var(--mono);font-size:.72rem;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg);color:var(--ink);margin:8px 0}
+.fb-send .sd-sub{font-size:.85rem;color:var(--ink-3);margin:-.4rem 0 .6rem}
 .fb-send .sd-warn{background:var(--amber-soft);color:var(--ink);border-radius:8px;padding:8px 12px;font-size:.88rem}
 #sdMsg{color:var(--green);font-weight:700}
 
@@ -2778,7 +2779,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v10';var VERSION_FULL='v10 · 3 Sep 2026';
+var VERSION='v11';var VERSION_FULL='v11 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2924,10 +2925,43 @@ function storageWarn(){
   if(b&&b.parentNode)b.parentNode.insertBefore(d,b.nextSibling);
   else{var host=document.querySelector('.main')||document.body;host.insertBefore(d,host.firstChild)}
 }
+var ENDPOINT='https://script.google.com/macros/s/AKfycbyC7OcICdPsXBmcJKkzQUNsXi55w2FxsSSKArjzfufcVNt7pJex9yxucX7i_oG_DfGm/exec';
+/* Post one comment to Amar's collector. Resolves true if it reached the server. */
+function push(rec){
+  if(!ENDPOINT)return Promise.resolve(false);
+  var body=JSON.stringify({items:[rec]});
+  return fetch(ENDPOINT,{method:'POST',body:body,headers:{'Content-Type':'text/plain;charset=utf-8'}})
+    .then(function(r){return r.text()})
+    .then(function(t){try{return !!JSON.parse(t).ok}catch(e){return true}})
+    .catch(function(){
+      /* CORS or offline: fire-and-forget so the comment still gets through */
+      return fetch(ENDPOINT,{method:'POST',mode:'no-cors',body:body,headers:{'Content-Type':'text/plain;charset=utf-8'}})
+        .then(function(){return true}).catch(function(){return false});
+    });
+}
+/* Retry anything that never made it (offline earlier, blocked network, older comments). */
+function flush(){
+  var a=mine(),pend=a.filter(function(r){return !r.sent});
+  if(!pend.length)return Promise.resolve(0);
+  return Promise.all(pend.map(function(r){
+    return push(r).then(function(ok){if(ok)r.sent=true;return ok})
+  })).then(function(res){
+    localSave(a);ALL=localAll();render();
+    return res.filter(Boolean).length;
+  });
+}
 function submit(rec,shot){
   if(shot)rec.shot=rec.id;
-  var a=mine();if(shot){SHOTS[rec.id]=shot;rec._shot=shot}a.push(rec);localSave(a);ALL=localAll();render();
-  return Promise.resolve();
+  var a=mine();if(shot){SHOTS[rec.id]=shot;rec._shot=shot}
+  rec.sent=false;a.push(rec);localSave(a);ALL=localAll();render();
+  return push(rec).then(function(ok){
+    rec.sent=!!ok;
+    var b=mine();b.forEach(function(x){if(x.id===rec.id)x.sent=!!ok});localSave(b);
+    ALL=localAll();render();
+    if(ok)toast('Sent to Amar \u2713','ok');
+    else toast('Saved here, but could not reach Amar \u2014 open Review inbox and press Send my feedback','bad');
+    return ok;
+  });
 }
 function markDone(rec,val){
   rec.done=val;
@@ -3049,7 +3083,8 @@ function sendDialog(rows){
   var fname='academy-feedback-'+String(NAME||'anon').replace(/[^A-Za-z0-9]+/g,'-').toLowerCase()+'.json';
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd"><h3>Send your feedback to Amar</h3>'+
-    '<p>You have <b>'+rows.length+'</b> comment'+(rows.length===1?'':'s')+'. Use whichever is easier — both contain the same thing.</p>'+
+    '<p>Your comments are normally sent to Amar automatically. <b id="sdStat">Re-sending now\u2026</b></p>'+
+    '<p class="sd-sub">If that does not work (blocked network, offline), use one of these instead \u2014 both contain the same thing.</p>'+
     '<div class="sd-row"><button class="fb-btn" id="sdCopy">&#128203; Copy to clipboard</button>'+
     '<span>then paste it into an email to Amar</span></div>'+
     (CANSAVE?'<div class="sd-row"><button class="fb-btn ghost" id="sdDl">&#11015; Download as a file</button>'+
@@ -3060,6 +3095,15 @@ function sendDialog(rows){
   document.body.appendChild(w);
   var ta=w.querySelector('#sdText'),msg=w.querySelector('#sdMsg');
   ta.value=exportJson(true);
+  var st=w.querySelector('#sdStat');
+  var unsent=mine().filter(function(r){return !r.sent}).length;
+  if(!unsent){if(st){st.textContent='All '+rows.length+' already delivered \u2713';st.style.color='#1a7f42'}}
+  else{flush().then(function(n){
+    var left=mine().filter(function(r){return !r.sent}).length;
+    if(!st)return;
+    if(!left){st.textContent='All '+rows.length+' delivered \u2713';st.style.color='#1a7f42'}
+    else{st.textContent=left+' could not be delivered \u2014 use a backup below';st.style.color='#b4232c'}
+  })}
   w.querySelector('#sdClose').addEventListener('click',function(){w.remove()});
   w.addEventListener('click',function(e){if(e.target===w)w.remove()});
   w.querySelector('#sdCopy').addEventListener('click',function(){
@@ -3120,7 +3164,7 @@ function boot(){
   ob.innerHTML='&#128203; Review inbox <span class="n">0</span>';document.body.appendChild(ob);
   var ib=document.createElement('div');ib.id='fbInbox';
   ib.innerHTML='<div class="ib-top"><h3>&#128203; Review inbox</h3><span id="ibMode" style="font-size:.85rem;opacity:.75"></span><span class="ib-ver">build '+VERSION_FULL+'</span>'+
-    '<span class="sp"><button class="fb-btn" id="ibSend">&#128228; Send my feedback</button>'+
+    '<span class="sp"><button class="fb-btn" id="ibSend">&#128260; Resend to Amar</button>'+
     '<label class="fb-btn ghost" for="ibImp">&#128229; Import file</label><input id="ibImp" type="file" accept=".json,application/json" multiple hidden>'+
     '<button class="fb-btn ghost" id="ibPaste">&#128203; Paste feedback</button>'+
     '<button class="fb-btn ghost" id="ibMd">Export Markdown</button><button class="fb-btn ghost" id="ibCsv">Export CSV</button>'+
@@ -3160,7 +3204,7 @@ function boot(){
   ib.querySelector('#ibCsv').addEventListener('click',function(){saveFile('academy-review-feedback.csv',exportCsv(),'text/csv')});
   var ban=document.createElement('div');ban.id='fbBanner';
   ban.innerHTML='<b>&#128172; You are reviewing this module.</b> Every topic has a <b>Review this topic</b> box at the bottom — pick <em>Suggestion</em>, <em>Correction</em>, <em>Question</em> or <em>Screenshot</em>, say what should change, and attach a picture if it helps (Ctrl+V pastes one straight in). '+
-    'Your comments are kept in this browser as you work. When you have finished, open <b>&#128203; Review inbox</b> at the bottom right and press <b>Send my feedback</b>, then paste the block into an email to Amar.'+
+    'Each comment is sent straight to Amar as soon as you press <b>Send</b> &mdash; nothing else to do when you are finished. You can review everything you have written in the <b>&#128203; Review inbox</b> at the bottom right.'+
     '<div class="who-line">Reviewing as <b id="fbWho">'+esc(NAME||'not set yet')+'</b><button type="button" class="fb-btn ghost" id="fbSetName">Set your name</button><span class="ver">build '+VERSION_FULL+'</span></div>'+
     '<span class="x">&times;</span>';
   var host=document.querySelector('.main')||document.body;var hero=host.querySelector('.hero');
@@ -3170,6 +3214,7 @@ function boot(){
   try{if(localStorage.getItem('la-review-banner')==='off')ban.remove()}catch(e){}
   loadStored();
   ALL=localAll();render();
+  setTimeout(function(){flush()},1500);
 
   offline();
   afterCaps();
@@ -3184,9 +3229,9 @@ function afterCaps(){
   var imp=document.querySelector('label[for="ibImp"]');if(imp&&!CANSAVE)imp.style.display='none';
 }
 function offline(){
-  var m=document.getElementById('ibMode');if(m)m.textContent='your comments are saved in this browser — send them with the button on the right';
+  var m=document.getElementById('ibMode');if(m)m.textContent='comments are sent to Amar automatically as you write them';
   document.querySelectorAll('.fb-note').forEach(function(n){
-    n.innerHTML='Paste an image straight into the box with Ctrl+V. Your comments are saved in this browser as you go — when you have finished, open <b>Review inbox</b> (bottom right) and press <b>Send my feedback</b> to copy them into an email.'});
+    n.innerHTML='Paste an image straight into the box with Ctrl+V. Each comment goes straight to Amar when you press Send.'});
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
