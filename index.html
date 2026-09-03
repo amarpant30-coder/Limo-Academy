@@ -2779,7 +2779,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v12';var VERSION_FULL='v12 · 3 Sep 2026';
+var VERSION='v13';var VERSION_FULL='v13 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2966,7 +2966,7 @@ function submit(rec,shot){
   rec.sent=false;a.push(rec);localSave(a);ALL=localAll();render();
   return push(rec).then(function(ok){
     markSent(rec.id,ok);
-    if(!ok)toast('Saved here, but could not reach Amar \u2014 open Review inbox and press Resend to Amar','bad');
+    if(!ok)toast('Saved here, but could not reach Amar \u2014 open Review inbox and press Check delivery','bad');
     return ok;
   });
 }
@@ -3090,7 +3090,7 @@ function sendDialog(rows){
   var fname='academy-feedback-'+String(NAME||'anon').replace(/[^A-Za-z0-9]+/g,'-').toLowerCase()+'.json';
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd"><h3>Send your feedback to Amar</h3>'+
-    '<p>Your comments are normally sent to Amar automatically. <b id="sdStat">Re-sending now\u2026</b></p>'+
+    '<p>Your comments are sent to Amar automatically. <b id="sdStat">Checking\u2026</b></p>'+
     '<p class="sd-sub">If that does not work (blocked network, offline), use one of these instead \u2014 both contain the same thing.</p>'+
     '<div class="sd-row"><button class="fb-btn" id="sdCopy">&#128203; Copy to clipboard</button>'+
     '<span>then paste it into an email to Amar</span></div>'+
@@ -3171,7 +3171,7 @@ function boot(){
   ob.innerHTML='&#128203; Review inbox <span class="n">0</span>';document.body.appendChild(ob);
   var ib=document.createElement('div');ib.id='fbInbox';
   ib.innerHTML='<div class="ib-top"><h3>&#128203; Review inbox</h3><span id="ibMode" style="font-size:.85rem;opacity:.75"></span><span class="ib-ver">build '+VERSION_FULL+'</span>'+
-    '<span class="sp"><button class="fb-btn" id="ibSend">&#128260; Resend to Amar</button>'+
+    '<span class="sp"><button class="fb-btn" id="ibSend" title="Check that every comment reached Amar, and get a backup copy if any did not">&#9989; Check delivery</button>'+
     '<label class="fb-btn ghost" for="ibImp">&#128229; Import file</label><input id="ibImp" type="file" accept=".json,application/json" multiple hidden>'+
     '<button class="fb-btn ghost" id="ibPaste">&#128203; Paste feedback</button>'+
     '<button class="fb-btn ghost" id="ibMd">Export Markdown</button><button class="fb-btn ghost" id="ibCsv">Export CSV</button>'+
@@ -3179,14 +3179,30 @@ function boot(){
     '<div class="ib-filters">'+['All'].concat(TYPES).map(function(x,i){return '<button data-f="'+x+'"'+(i===0?' class="on"':'')+'>'+x+'</button>'}).join('')+
     '<button id="ibDone" style="margin-left:auto">Show done</button></div><div class="ib-body" id="ibBody"></div>';
   document.body.appendChild(ib);
-  ob.addEventListener('click',function(){ib.classList.add('on');document.body.classList.add('noscroll');renderInbox()});
+  function openInbox(pushState){
+    ib.classList.add('on');document.body.classList.add('noscroll');renderInbox();
+    /* Add a history entry so the browser Back button closes the inbox
+       instead of leaving the module entirely. */
+    if(pushState!==false){try{history.pushState({fbInbox:1},'','#review-inbox')}catch(e){}}
+  }
+  function closeInbox(goBack){
+    ib.classList.remove('on');document.body.classList.remove('noscroll');
+    if(goBack!==false&&history.state&&history.state.fbInbox){try{history.back()}catch(e){}}
+  }
+  window.addEventListener('popstate',function(){
+    if(ib.classList.contains('on'))closeInbox(false);
+  });
+  ob.addEventListener('click',function(){openInbox()});
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&ib.classList.contains('on'))closeInbox();
+  });
   ib.querySelector('#ibWipe').addEventListener('click',function(){
     if(!ALL.length){toast('There is nothing to clear.','bad');return}
     confirmBox('All '+ALL.length+' comments in this browser — yours and any you imported — will be removed.',function(){
       try{localStorage.removeItem('la-review-local');localStorage.removeItem('la-review-imported')}catch(e){}
       MEM_MINE=[];MEM_IMP=[];SHOTS={};ALL=[];render();renderInbox();toast('Cleared')});
   });
-  ib.querySelector('#ibClose').addEventListener('click',function(){ib.classList.remove('on');document.body.classList.remove('noscroll')});
+  ib.querySelector('#ibClose').addEventListener('click',function(){closeInbox()});
   ib.querySelectorAll('.ib-filters button[data-f]').forEach(function(b){b.addEventListener('click',function(){
     ib.querySelectorAll('.ib-filters button[data-f]').forEach(function(x){x.classList.remove('on')});b.classList.add('on');FILTER=b.dataset.f;renderInbox()})});
   ib.querySelector('#ibDone').addEventListener('click',function(){SHOWDONE=!SHOWDONE;this.classList.toggle('on',SHOWDONE);this.textContent=SHOWDONE?'Hide done':'Show done';renderInbox()});
