@@ -2779,7 +2779,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v11';var VERSION_FULL='v11 · 3 Sep 2026';
+var VERSION='v12';var VERSION_FULL='v12 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2944,22 +2944,29 @@ function flush(){
   var a=mine(),pend=a.filter(function(r){return !r.sent});
   if(!pend.length)return Promise.resolve(0);
   return Promise.all(pend.map(function(r){
-    return push(r).then(function(ok){if(ok)r.sent=true;return ok})
+    return push(r).then(function(ok){if(ok)markSent(r.id,true);return ok})
   })).then(function(res){
-    localSave(a);ALL=localAll();render();
     return res.filter(Boolean).length;
   });
+}
+/* Mark one comment delivered. Reads storage fresh so a stale array can never
+   clobber the flag, and keeps the in-memory copy in step. */
+function markSent(id,ok){
+  var stored=lsGet('la-review-local');
+  if(Array.isArray(stored)){
+    stored.forEach(function(x){if(x.id===id)x.sent=!!ok});
+    MEM_MINE=stored;lsSet('la-review-local',stored);
+  }
+  MEM_MINE.forEach(function(x){if(x.id===id)x.sent=!!ok});
+  ALL=localAll();render();
 }
 function submit(rec,shot){
   if(shot)rec.shot=rec.id;
   var a=mine();if(shot){SHOTS[rec.id]=shot;rec._shot=shot}
   rec.sent=false;a.push(rec);localSave(a);ALL=localAll();render();
   return push(rec).then(function(ok){
-    rec.sent=!!ok;
-    var b=mine();b.forEach(function(x){if(x.id===rec.id)x.sent=!!ok});localSave(b);
-    ALL=localAll();render();
-    if(ok)toast('Sent to Amar \u2713','ok');
-    else toast('Saved here, but could not reach Amar \u2014 open Review inbox and press Send my feedback','bad');
+    markSent(rec.id,ok);
+    if(!ok)toast('Saved here, but could not reach Amar \u2014 open Review inbox and press Resend to Amar','bad');
     return ok;
   });
 }
