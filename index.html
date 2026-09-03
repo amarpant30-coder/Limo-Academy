@@ -2778,7 +2778,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v9';var VERSION_FULL='v9 · 3 Sep 2026';
+var VERSION='v10';var VERSION_FULL='v10 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -3168,6 +3168,7 @@ function boot(){
   ban.querySelector('#fbSetName').addEventListener('click',function(){askName()});
   ban.querySelector('.x').addEventListener('click',function(){ban.remove();try{localStorage.setItem('la-review-banner','off')}catch(e){}});
   try{if(localStorage.getItem('la-review-banner')==='off')ban.remove()}catch(e){}
+  loadStored();
   ALL=localAll();render();
 
   offline();
