@@ -2788,7 +2788,7 @@ SEL.forEach(function(sel){
 var TYPES=['Suggestion','Correction','Question','Screenshot'];
 var ALL=[], SHOTS={}, NAME=null, CANSAVE=(typeof claude==='undefined'), STORAGE_OK=true;
 try{NAME=localStorage.getItem('la-review-name')||null}catch(e){STORAGE_OK=false}
-var VERSION='v15';var VERSION_FULL='v15 · 3 Sep 2026';
+var VERSION='v16';var VERSION_FULL='v16 · 3 Sep 2026';
 function modal(html,onOpen){
   var w=document.createElement('div');w.className='fb-send';
   w.innerHTML='<div class="sd">'+html+'</div>';
@@ -2979,9 +2979,12 @@ function driveThumb(url){
 /* Everything anyone has submitted, straight from the collector. */
 function fetchAll(){
   if(!ENDPOINT)return Promise.resolve(false);
-  return fetch(ENDPOINT+'?t='+Date.now())
-    .then(function(r){return r.json()})
-    .then(function(j){
+  /* credentials:'omit' matters — with Google cookies attached the endpoint can
+     answer with an HTML interstitial instead of JSON. */
+  return fetch(ENDPOINT+'?t='+Date.now(),{credentials:'omit'})
+    .then(function(r){return r.text()})
+    .then(function(t){
+      var j=null;try{j=JSON.parse(t)}catch(e){return false}
       if(!j||!j.ok||!j.items)return false;
       REMOTE=j.items.filter(function(x){return x&&(x.text||x.shotUrl)}).map(function(x){
         return {id:x.id||('r'+x.ts),topic:x.topic||'',title:x.title||'',section:x.section||'',
